@@ -1,0 +1,52 @@
+# =====================================================================
+# 本仓库是「整机固定配置备份」：用于服务器失效后在新机完整重建系统。
+# 敏感密钥/令牌已用 gpg 加密到 secrets.tar.gz.gpg，明文一律不入库。
+# =====================================================================
+
+# ── 敏感凭据（明文不入库，见 secrets.tar.gz.gpg / RESTORE.md）────
+.ssh/id_ed25519
+.claude.json
+.claude/settings.json
+.bash_history
+.docker/
+.config/
+line-crm-monitor/.env
+line-crm-monitor/.env.p1.bak
+line-crm-monitor-migration/config.json
+line-crm-monitor-migration/config.json.current
+line-crm-monitor-migration/tunn3l_data.tar.gz
+
+# ── 数据库动态数据 / 大文件（每日上报，不备份）────────────
+line-crm-monitor/backups/
+line-crm-monitor/backup_stage7e_*.sql
+line-crm-monitor-migration/dump.sql
+line-crm-monitor-migration/code.tar.gz
+
+# ── 可自动重装的二进制 / 缓存（不备份）────────────
+.vscode-server/
+.local/share/claude/versions/
+.cache/
+.dotnet/
+.Xauthority
+.wget-hsts
+.gnupg/
+
+# ── 项目构建产物 / 依赖（不备份，可重装）────────────
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+dist/
+line-crm-monitor/tunn3l/tunn3l
+
+# ── Claude Code：只保留 memory，其余为会话缓存/已加密 ──
+.claude/*
+!.claude/projects/
+.claude/projects/*
+!.claude/projects/-root/
+.claude/projects/-root/*
+!.claude/projects/-root/memory/
+
+# ── 日志（不备份）────────────
+*.log

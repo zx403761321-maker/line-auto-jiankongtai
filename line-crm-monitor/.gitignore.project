@@ -1,0 +1,25 @@
+# 敏感配置：本地 .env 绝不提交（内含 POSTGRES_PASSWORD / INGEST_TOKEN / VIEW_TOKEN）
+.env
+
+# Python 运行时
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 前端构建产物
+web/node_modules/
+web/dist/
+
+# 数据库备份（scripts/backup.sh 产出）
+backups/
+
+# 历史数据库导出（大体积、含真实数据，勿提交）
+backup_stage7e_*.sql
+
+# 备份/临时文件（.env.p1.bak / docker-compose.yml.*.bak / query.py.bak-* 等）
+*.bak
+*.bak-*
+
+# tunn3l.sh 客户端二进制（第三方下载，勿提交）
+tunn3l/tunn3l

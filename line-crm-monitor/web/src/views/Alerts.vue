@@ -1,0 +1,209 @@
+<script setup>
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { getServers, getDevices, getAnomalyHistory } from '../api'
+import { deviceAnomalyOf } from '../utils/deviceAnomaly'
+
+const servers = ref([])
+const devices = ref([])
+const history = ref([])
+const loading = ref(true)
+// 各接口加载失败标记：区分「空数据」与「接口失败」，避免失败被当成「无异常」
+const serversError = ref(false)
+const devicesError = ref(false)
+const historyError = ref(false)
+
+// dimension → 中文展示标签（API 层保持英文枚举，展示层中文化）
+const DIM_LABEL = {
+  server_offline: '服务器离线',
+  device_offline: '设备离线',
+  risk_critical: '风险临界',
+  account_needs_replacement: '需换号',
+}
+
+// 设备异常 dimension → 原因文案（与 deviceAnomalyOf 返回值对应）
+const DEVICE_REASON = {
+  account_needs_replacement: '需换号',
+  risk_critical: '风险分数临界',
+  device_offline: '设备离线',
+}
+
+// severity 独立计算：不与异常类型硬绑定，未来可按持续时间/影响范围等
+// 额外信号动态调整（只需改此函数，不影响聚合与展示）。
+function severityOf(alert) {
+  switch (alert.dimension) {
+    case 'server_offline':
+      return 'critical'
+    case 'account_needs_replacement':
+      return 'critical'
+    case 'risk_critical':
+      return 'critical'
+    case 'device_offline':
+      return 'warning'
+    default:
+      return 'info'
+  }
+}
+
+function severityTagType(s) {
+  if (s === 'critical') return 'danger'
+  if (s === 'warning') return 'warning'
+  return 'info'
+}
+
+const SEVERITY_ORDER = { critical: 0, warning: 1, info: 2 }
+
+// 当前异常（读侧派生，纯前端聚合；不做历史/恢复，v2 单独设计）
+const alerts = computed(() => {
+  const list = []
+
+  // 1. 服务器离线（server heartbeat timeout / agent offline 合并）
+  for (const s of servers.value) {
+    if (s.online === false) {
+      list.push({
+        kind: 'server',
+        entity: s.server_id,
+        dimension: 'server_offline',
+        reason: '心跳超时',
+        server_id: s.server_id,
+      })
+    }
+  }
+
+  // 2. 设备异常：按优先级去重，每台设备最多报一条最高优先级
+  //    account_needs_replacement > risk_critical > device_offline（判定见 utils/deviceAnomaly.js）
+  for (const d of devices.value) {
+    const dimension = deviceAnomalyOf(d)
+    if (!dimension) continue
+    list.push({
+      kind: 'device',
+      entity: d.device_id,
+      dimension,
+      reason: DEVICE_REASON[dimension],
+      server_id: d.server_id,
+    })
+  }
+
+  // 3. 计算 severity（独立）+ 排序：严重度降序，服务器优先，实体字典序
+  for (const a of list) {
+    a.severity = severityOf(a)
+  }
+  list.sort((x, y) => {
+    const sev = (SEVERITY_ORDER[x.severity] ?? 9) - (SEVERITY_ORDER[y.severity] ?? 9)
+    if (sev !== 0) return sev
+    if (x.kind !== y.kind) return x.kind === 'server' ? -1 : 1
+    return x.entity.localeCompare(y.entity)
+  })
+  return list
+})
+
+// 异常历史映射：`server_id:device_id` → 各维度历史
+const historyMap = computed(() => {
+  const map = {}
+  for (const h of history.value) {
+    map[`${h.server_id}:${h.device_id}`] = h
+  }
+  return map
+})
+
+function fmtTime(v) {
+  if (!v) return '—'
+  return new Date(v).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })
+}
+
+function fmtHistory(alert) {
+  const h = historyMap.value[`${alert.server_id}:${alert.entity}`]
+  const dim = h ? h[alert.dimension] : null
+  return {
+    first: dim && dim.first_at ? fmtTime(dim.first_at) : '—',
+    last: dim && dim.last_at ? fmtTime(dim.last_at) : '—',
+    count: dim ? dim.count : 0,
+  }
+}
+
+let timer = null
+async function load() {
+  // allSettled：任一接口失败不拖垮其余；历史接口挂掉时仍能正常显示服务器/设备异常
+  const [s, d, h] = await Promise.allSettled([getServers(), getDevices(), getAnomalyHistory(30)])
+  if (s.status === 'fulfilled') {
+    servers.value = s.value
+    serversError.value = false
+  } else {
+    serversError.value = true
+  }
+  if (d.status === 'fulfilled') {
+    devices.value = d.value
+    devicesError.value = false
+  } else {
+    devicesError.value = true
+  }
+  if (h.status === 'fulfilled') {
+    history.value = h.value
+    historyError.value = false
+  } else {
+    historyError.value = true
+  }
+  loading.value = false
+}
+
+onMounted(() => {
+  load()
+  timer = setInterval(load, 15000)
+})
+onUnmounted(() => clearInterval(timer))
+</script>
+
+<template>
+  <div v-loading="loading">
+    <div class="toolbar">
+      <span class="count">当前异常 {{ alerts.length }} 条</span>
+      <el-tag v-if="alerts.length === 0 && !devicesError && !serversError" type="success" size="small">无异常</el-tag>
+      <el-tag v-else-if="alerts.length === 0" type="warning" size="small">数据加载失败，请稍后重试</el-tag>
+    </div>
+    <el-alert
+      v-if="historyError"
+      type="warning"
+      :closable="false"
+      show-icon
+      title="异常历史暂时无法加载（首次/最近/次数列显示为 —，异常列表不受影响）"
+      style="margin-bottom: 12px"
+    />
+    <el-table :data="alerts" border stripe>
+      <el-table-column label="严重度" width="110">
+        <template #default="{ row }">
+          <el-tag :type="severityTagType(row.severity)" size="small">{{ row.severity }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="类型" width="90">
+        <template #default="{ row }">{{ row.kind === 'server' ? '服务器' : '设备' }}</template>
+      </el-table-column>
+      <el-table-column prop="server_id" label="server_id" width="110" />
+      <el-table-column prop="entity" label="实体" width="130" />
+      <el-table-column label="异常" width="170">
+        <template #default="{ row }">{{ DIM_LABEL[row.dimension] || row.dimension }}</template>
+      </el-table-column>
+      <el-table-column prop="reason" label="原因" min-width="160" />
+      <el-table-column label="首次发生" width="180">
+        <template #default="{ row }">{{ fmtHistory(row).first }}</template>
+      </el-table-column>
+      <el-table-column label="最近发生" width="180">
+        <template #default="{ row }">{{ fmtHistory(row).last }}</template>
+      </el-table-column>
+      <el-table-column label="发生次数" width="90">
+        <template #default="{ row }">{{ fmtHistory(row).count }}</template>
+      </el-table-column>
+    </el-table>
+  </div>
+</template>
+
+<style scoped>
+.toolbar {
+  margin-bottom: 12px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.count {
+  color: #909399;
+  font-size: 13px;
+}
+</style>

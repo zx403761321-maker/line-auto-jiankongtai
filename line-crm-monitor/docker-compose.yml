@@ -1,0 +1,85 @@
+# =============================================================================
+# 中央监控 Server —— 部署在用户本地电脑（非云服务器）
+# 访问：
+#   本机     http://localhost:${API_PORT}
+#   局域网   http://<本机IP>:${API_PORT}
+#   Tailscale http://<tailscale-ip>:${API_PORT}（宿主机入 tailnet 后即可）
+# 不绑定公网域名/IP；具体访问方式部署阶段决定。
+# =============================================================================
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: monitor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: monitor
+      TZ: Asia/Taipei
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U monitor -d monitor"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # 数据库不对宿主机暴露端口，仅 api 内部访问
+
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://monitor:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/monitor
+      INGEST_TOKEN: ${INGEST_TOKEN:?set INGEST_TOKEN in .env}
+      VIEW_TOKEN: ${VIEW_TOKEN:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      RISK_WARNING_THRESHOLD: ${RISK_WARNING_THRESHOLD:-40}
+      RISK_CRITICAL_THRESHOLD: ${RISK_CRITICAL_THRESHOLD:-90}
+      SERVER_IP_MAP: ${SERVER_IP_MAP:-}
+      SERVER_GROUP_MAP: ${SERVER_GROUP_MAP:-}
+      RETENTION_DEVICE_STATUS_DAYS: ${RETENTION_DEVICE_STATUS_DAYS:-30}
+      RETENTION_HEARTBEAT_DAYS: ${RETENTION_HEARTBEAT_DAYS:-30}
+      RETENTION_TASK_DAYS: ${RETENTION_TASK_DAYS:-90}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      GROUP_USERS: ${GROUP_USERS:-}
+      PUBLIC_MODE: ${PUBLIC_MODE:-false}
+      PORT: "8000"
+      TZ: Asia/Taipei
+    ports:
+      - "${API_PORT:-8000}:8000"   # 默认绑 0.0.0.0，局域网/Tailscale 可访问
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── Stage7-E Phase E：公网 https 隧道 ──────────────────────────
+  # 旧：Cloudflare Quick Tunnel（临时域名每次重启变；已失效，注释保留作回滚）
+  #   cloudflared:
+  #     image: cloudflare/cloudflared:latest
+  #     restart: unless-stopped
+  #     command: tunnel --no-autoupdate --url http://api:8000
+  #     depends_on:
+  #       - api
+  #
+  # 新：tunn3l.sh 固定子域名（零注册/免费/https，域名重启不变）
+  #     tunn3l 只认 localhost:<port> → network_mode: service:api 让 localhost:8000 直达 api
+  tunn3l:
+    build: ./tunn3l
+    restart: unless-stopped
+    network_mode: "service:api"
+    environment:
+      TUNN3L_SUBDOMAIN: ${TUNN3L_SUBDOMAIN:?set TUNN3L_SUBDOMAIN in .env}
+    volumes:
+      - tunn3l_data:/root/.tunn3l
+    command: http 8000 --subdomain ${TUNN3L_SUBDOMAIN}
+
+  # P2：Vue Dashboard（构建产物由 api 静态托管，或独立 nginx 容器）
+  # web:
+  #   image: nginx:alpine
+  #   volumes:
+  #     - ./web/dist:/usr/share/nginx/html:ro
+  #   ports:
+  #     - "${WEB_PORT:-8080}:80"
+
+volumes:
+  pgdata:
+  tunn3l_data:

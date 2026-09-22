@@ -1,0 +1,5 @@
+- [success 即加好友](line-crm-success-is-add-friend.md) — daily_statistics.success 语义=加好友成功数
+- [宿主无 npm/cron](line-crm-host-no-npm-cron.md) — 前端依赖用 docker node 装，备份用 systemd timer
+- [重建 api 会断 tunn3l](line-crm-tunn3l-network-recreate.md) — 必须同时 force-recreate tunn3l
+- [中央侧接入新服务器](line-crm-central-onboard-server.md) — 改 3 个 .env 键 + 重启 + 中文组名手工补
+- [git 已连 GitHub](line-crm-git-repo-connection.md) — 仓库根在 /root/line-crm-monitor，remote=line-auto-jiankongtai，敏感文件勿提交

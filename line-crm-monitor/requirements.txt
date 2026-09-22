@@ -1,0 +1,6 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+asyncpg>=0.29
+pydantic>=2.0
+# Starlette SessionMiddleware 依赖（httpOnly 登录 cookie 签名）
+itsdangerous>=2.0
