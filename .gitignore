@@ -50,3 +50,8 @@ line-crm-monitor/tunn3l/tunn3l
 
 # ── 日志（不备份）────────────
 *.log
+
+# ── Claude Code / Copilot 运行时噪音（版本升级自动变的 symlink、锁、日志，不备份）──
+.local/bin/claude
+.local/state/claude/locks/
+.copilot/logs/
